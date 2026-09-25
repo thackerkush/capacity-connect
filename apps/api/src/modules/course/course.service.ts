@@ -220,8 +220,13 @@ export class CourseService {
     }
 
     const { skillIds, ...courseData } = dto;
+
+    // M-2: Reject any attempt to change status through the general update endpoint.
+    // Status transitions have dedicated endpoints: /submit, /approve, /reject, /archive.
     if ('status' in courseData) {
-      delete (courseData as any).status;
+      throw new BadRequestException(
+        'Cannot set status via this endpoint. Use /courses/:id/submit, /approve, /reject, or /archive for status transitions.',
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {

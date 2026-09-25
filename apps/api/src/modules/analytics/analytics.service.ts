@@ -21,8 +21,9 @@ export class AnalyticsService {
     ] = await Promise.all([
       this.prisma.traineeProfile.count(),
       this.prisma.trainerProfile.count(),
-      this.prisma.course.count(),
-      this.prisma.course.count({ where: { status: CourseStatus.published } }),
+      // M-5: Exclude soft-deleted courses from the totals
+      this.prisma.course.count({ where: { deletedAt: null } }),
+      this.prisma.course.count({ where: { status: CourseStatus.published, deletedAt: null } }),
       this.prisma.enrollment.count(),
       this.prisma.enrollment.count({ where: { status: EnrollmentStatus.completed } }),
       this.prisma.certificate.count(),
@@ -105,66 +106,47 @@ export class AnalyticsService {
 
   /**
    * Organization-wide Competency Heatmap
-   * Returns a matrix of departments and average skill levels
+   * M-6: Replaced in-memory aggregation with a raw SQL GROUP BY query.
+   * The previous approach loaded every TraineeCompetency + joins into Node.js memory,
+   * which could cause OOM with thousands of employees.
    */
   async getHeatmap(): Promise<any> {
-    // Note: In Prisma, grouping with joined tables can be tricky, 
-    // so we fetch trainee competencies with department and skill data and aggregate in memory.
-    const competencies = await this.prisma.traineeCompetency.findMany({
-      include: {
-        traineeProfile: {
-          include: { department: true }
-        },
-        competency: {
-          include: { competencySkills: { include: { skill: true } } }
-        }
-      }
-    });
+    const rows: Array<{
+      department: string;
+      skill: string;
+      avg_current: number;
+      avg_required: number;
+      count: bigint;
+    }> = await this.prisma.$queryRaw`
+      SELECT
+        COALESCE(d.name, 'Unassigned')        AS department,
+        s.name                                 AS skill,
+        AVG(tc."currentLevel")::float          AS avg_current,
+        AVG(tc."requiredLevel")::float         AS avg_required,
+        COUNT(*)                               AS count
+      FROM "TraineeCompetency" tc
+      JOIN "TraineeProfile"    tp ON tp.id = tc."traineeProfileId"
+      JOIN "Competency"        c  ON c.id  = tc."competencyId"
+      JOIN "CompetencySkill"   cs ON cs."competencyId" = c.id
+      JOIN "Skill"             s  ON s.id  = cs."skillId"
+      LEFT JOIN "Department"   d  ON d.id  = tp."departmentId"
+      GROUP BY COALESCE(d.name, 'Unassigned'), s.name
+      ORDER BY department, skill
+    `;
 
-    const heatmap = new Map<string, Map<string, { totalCurrent: number, totalRequired: number, count: number }>>();
-
-    for (const comp of competencies) {
-      const deptName = comp.traineeProfile.department?.name || 'Unassigned';
-      
-      if (!heatmap.has(deptName)) {
-        heatmap.set(deptName, new Map());
-      }
-      
-      const deptMap = heatmap.get(deptName)!;
-
-      for (const cs of comp.competency.competencySkills) {
-        const skillName = cs.skill.name;
-        
-        if (!deptMap.has(skillName)) {
-          deptMap.set(skillName, { totalCurrent: 0, totalRequired: 0, count: 0 });
-        }
-        
-        const stats = deptMap.get(skillName)!;
-        stats.totalCurrent += comp.currentLevel;
-        stats.totalRequired += comp.requiredLevel;
-        stats.count += 1;
-      }
-    }
-
-    // Convert Map to a JSON serializable array structure
-    const result = [];
-    for (const [dept, skillsMap] of heatmap.entries()) {
-      const skills = [];
-      for (const [skill, stats] of skillsMap.entries()) {
-        skills.push({
-          skill,
-          avgCurrentLevel: stats.count > 0 ? stats.totalCurrent / stats.count : 0,
-          avgRequiredLevel: stats.count > 0 ? stats.totalRequired / stats.count : 0,
-          count: stats.count
-        });
-      }
-      result.push({
-        department: dept,
-        skills,
+    // Group flat rows into { department, skills[] } structure
+    const heatmap = new Map<string, { skill: string; avgCurrentLevel: number; avgRequiredLevel: number; count: number }[]>();
+    for (const row of rows) {
+      if (!heatmap.has(row.department)) heatmap.set(row.department, []);
+      heatmap.get(row.department)!.push({
+        skill: row.skill,
+        avgCurrentLevel: Number(row.avg_current),
+        avgRequiredLevel: Number(row.avg_required),
+        count: Number(row.count),
       });
     }
 
-    return result;
+    return [...heatmap.entries()].map(([department, skills]) => ({ department, skills }));
   }
 
   /**
@@ -233,20 +215,22 @@ export class AnalyticsService {
 
   /**
    * Reports - Courses (returns JSON suitable for CSV export on the client)
+   * M-5: Now filters out soft-deleted courses with deletedAt: null
    */
   async getCoursesReport(): Promise<any> {
     const courses = await this.prisma.course.findMany({
+      where: { deletedAt: null }, // M-5: exclude soft-deleted courses from reports
       include: {
         category: true,
         trainer: { include: { user: true } },
         _count: {
-          select: { enrollments: true, certificates: true, modules: true }
-        }
+          select: { enrollments: true, certificates: true, modules: true },
+        },
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
 
-    return courses.map(c => ({
+    return courses.map((c) => ({
       id: c.id,
       title: c.title,
       slug: c.slug,
@@ -257,7 +241,10 @@ export class AnalyticsService {
       moduleCount: c._count.modules,
       enrollmentCount: c._count.enrollments,
       certificateCount: c._count.certificates,
-      completionRatePct: c._count.enrollments > 0 ? (c._count.certificates / c._count.enrollments) * 100 : 0,
+      completionRatePct:
+        c._count.enrollments > 0
+          ? Math.round((c._count.certificates / c._count.enrollments) * 100)
+          : 0,
       createdAt: c.createdAt,
     }));
   }

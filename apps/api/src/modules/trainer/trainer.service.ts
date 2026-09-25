@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../../common/services/audit.service';
 import { UpdateTrainerProfileDto } from './dto/update-trainer-profile.dto';
 import { CreateAvailabilityDto } from './dto/create-availability.dto';
 import { CreateExpertiseDto } from './dto/create-expertise.dto';
 
 @Injectable()
 export class TrainerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async getProfile(userId: string): Promise<any> {
     const profile = await this.prisma.trainerProfile.findUnique({
@@ -26,33 +30,64 @@ export class TrainerService {
 
   async updateProfile(userId: string, data: UpdateTrainerProfileDto): Promise<any> {
     // H-1: Verify the profile exists before attempting to update.
-    // Without this, a missing profile throws a raw Prisma P2025 error.
     const existing = await this.prisma.trainerProfile.findUnique({ where: { userId } });
     if (!existing) throw new NotFoundException('Trainer profile not found');
 
-    return this.prisma.trainerProfile.update({
-      where: { userId },
-      data,
+    // M-4: Audit profile updates so changes are traceable
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.trainerProfile.update({ where: { userId }, data });
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'trainer.profile.updated',
+        entityType: 'TrainerProfile',
+        entityId: existing.id,
+        ipAddress: null,
+        metadata: null,
+        prisma: tx,
+      });
+      return updated;
     });
   }
 
   async addAvailability(userId: string, data: CreateAvailabilityDto) {
     const profile = await this.getProfile(userId);
-    return this.prisma.trainerAvailability.create({
-      data: {
-        ...data,
-        trainerProfileId: profile.id,
-      },
+
+    // M-4: Audit availability additions
+    return this.prisma.$transaction(async (tx) => {
+      const availability = await tx.trainerAvailability.create({
+        data: { ...data, trainerProfileId: profile.id },
+      });
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'trainer.availability.added',
+        entityType: 'TrainerAvailability',
+        entityId: availability.id,
+        ipAddress: null,
+        metadata: { dayOfWeek: data.dayOfWeek },
+        prisma: tx,
+      });
+      return availability;
     });
   }
 
   async addExpertise(userId: string, data: CreateExpertiseDto) {
     const profile = await this.getProfile(userId);
-    return this.prisma.trainerExpertise.create({
-      data: {
-        ...data,
-        trainerProfileId: profile.id,
-      },
+
+    // M-4: Audit expertise additions
+    return this.prisma.$transaction(async (tx) => {
+      const expertise = await tx.trainerExpertise.create({
+        data: { ...data, trainerProfileId: profile.id },
+      });
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'trainer.expertise.added',
+        entityType: 'TrainerExpertise',
+        entityId: expertise.id,
+        ipAddress: null,
+        metadata: { skillId: data.skillId },
+        prisma: tx,
+      });
+      return expertise;
     });
   }
 
@@ -66,8 +101,19 @@ export class TrainerService {
       throw new NotFoundException('Availability not found or does not belong to you');
     }
 
-    return this.prisma.trainerAvailability.delete({
-      where: { id: availabilityId },
+    // M-4: Audit availability deletions
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.trainerAvailability.delete({ where: { id: availabilityId } });
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'trainer.availability.deleted',
+        entityType: 'TrainerAvailability',
+        entityId: availabilityId,
+        ipAddress: null,
+        metadata: null,
+        prisma: tx,
+      });
+      return deleted;
     });
   }
 
@@ -81,8 +127,19 @@ export class TrainerService {
       throw new NotFoundException('Expertise not found or does not belong to you');
     }
 
-    return this.prisma.trainerExpertise.delete({
-      where: { id: expertiseId },
+    // M-4: Audit expertise deletions
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.trainerExpertise.delete({ where: { id: expertiseId } });
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'trainer.expertise.deleted',
+        entityType: 'TrainerExpertise',
+        entityId: expertiseId,
+        ipAddress: null,
+        metadata: null,
+        prisma: tx,
+      });
+      return deleted;
     });
   }
 }
