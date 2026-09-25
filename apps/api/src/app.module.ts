@@ -16,6 +16,7 @@ import { AssessmentModule } from './modules/assessment/assessment.module';
 import { CertificateModule } from './modules/certificate/certificate.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AiModule } from './modules/ai/ai.module';
+import { HealthModule } from './health/health.module'; // L-6
 import authConfig from './config/auth.config';
 
 @Module({
@@ -44,6 +45,8 @@ import authConfig from './config/auth.config';
     // ─── Phase 10 & 11: Analytics and AI ─────────────────────────────────────────
     AnalyticsModule,
     AiModule,
+    // ─── L-6: Health check endpoint for Docker / k8s probes ──────────────────────
+    HealthModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },

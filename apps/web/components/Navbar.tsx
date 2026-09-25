@@ -14,7 +14,11 @@ export function Navbar() {
   const { user, isLoggingOut } = useAuth();
   const { theme, toggleTheme, isPortal } = useTheme();
   const searchParams = useSearchParams();
-  
+
+  // L-5: Derive theme-aware class sets.
+  // Non-portal pages (landing) always render dark. Portal pages respect theme.
+  const isDark = !isPortal || theme === 'dark';
+
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isQROpen, setIsQROpen] = useState(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
@@ -34,7 +38,12 @@ export function Navbar() {
               <Layers className="w-5 h-5 text-white" />
             </div>
             <div className="flex flex-col">
-              <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent brand-title">
+              {/* L-5: Brand title colour follows theme */}
+              <span className={`text-lg font-bold tracking-tight bg-clip-text text-transparent brand-title bg-gradient-to-r ${
+                isDark
+                  ? 'from-white via-slate-200 to-slate-400'
+                  : 'from-slate-900 via-slate-700 to-slate-500'
+              }`}>
                 Capacity Connect
               </span>
               <span className="text-[10px] tracking-wider uppercase font-semibold text-blue-400 -mt-1">
@@ -43,16 +52,19 @@ export function Navbar() {
             </div>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
-            <Link href="/" className="hover:text-blue-400 transition-colors">
+          {/* L-5: Nav link colours adapt to theme */}
+          <nav className={`hidden md:flex items-center gap-6 text-sm font-medium ${
+            isDark ? 'text-slate-300' : 'text-slate-600'
+          }`}>
+            <Link href="/" className={`transition-colors ${ isDark ? 'hover:text-blue-400' : 'hover:text-blue-600' }`}>
               Overview
             </Link>
-            <Link href="/trainee/courses" className="hover:text-blue-400 transition-colors flex items-center gap-1.5">
+            <Link href="/trainee/courses" className={`transition-colors flex items-center gap-1.5 ${ isDark ? 'hover:text-blue-400' : 'hover:text-blue-600' }`}>
               <BookOpen className="w-4 h-4" /> Courses
             </Link>
             <button
               onClick={() => setIsQROpen(true)}
-              className="hover:text-blue-400 transition-colors flex items-center gap-1.5"
+              className={`transition-colors flex items-center gap-1.5 ${ isDark ? 'hover:text-blue-400' : 'hover:text-blue-600' }`}
             >
               <QrCode className="w-4 h-4 text-emerald-400" /> Verify Cert
             </button>
@@ -86,16 +98,25 @@ export function Navbar() {
                 {isPortal && (
                   <button
                     onClick={toggleTheme}
-                    className="p-2 rounded-lg text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                    className={`p-2 rounded-lg transition-colors ${
+                      isDark
+                        ? 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10'
+                        : 'text-slate-500 hover:text-blue-600 hover:bg-blue-100'
+                    }`}
                     title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
                   >
                     {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                   </button>
                 )}
+                {/* L-5: Logout button also adapts */}
                 <button
                   onClick={() => setIsLogoutOpen(true)}
                   disabled={isLoggingOut}
-                  className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                  className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                    isDark
+                      ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10'
+                      : 'text-slate-500 hover:text-rose-600 hover:bg-rose-100'
+                  }`}
                   title="Log Out"
                 >
                   {isLoggingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
