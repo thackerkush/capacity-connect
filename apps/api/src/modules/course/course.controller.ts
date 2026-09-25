@@ -59,15 +59,21 @@ export class CourseController {
     @Query('limit') limit?: string,
     @CurrentUser() user?: any,
   ): Promise<any> {
-    // Only admins/trainers may filter by non-published statuses
-    const resolvedStatus = status as any;
+    // C-3: Only admins and trainers may request non-published course statuses.
+    // Trainees (and unauthenticated requests) always see published courses only.
+    const isPrivilegedUser = user?.roles?.some(
+      (r: any) => r.name === 'admin' || r.name === 'trainer',
+    );
+    const resolvedStatus: any =
+      status && isPrivilegedUser ? status : undefined;
+
     return this.courseService.listCourses({
       status: resolvedStatus,
       categoryId,
       difficulty,
       search,
-      page: page ? parseInt(page) : undefined,
-      limit: limit ? parseInt(limit) : undefined,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
     });
   }
 
@@ -231,8 +237,12 @@ export class CourseController {
   getEnrollment(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
-    return this.courseService.getEnrollment(id, userId);
+    // C-4: Pass full user object so the service can enforce ownership.
+    const isAdmin = user?.roles?.some((r: any) => r.name === 'admin');
+    const isTrainer = user?.roles?.some((r: any) => r.name === 'trainer');
+    return this.courseService.getEnrollment(id, userId, isAdmin || isTrainer);
   }
 
   @Patch('enrollments/:id/progress')

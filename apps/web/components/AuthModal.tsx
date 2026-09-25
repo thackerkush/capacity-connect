@@ -40,7 +40,12 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     }
   };
 
+  // C-5: Demo credentials are only available when NEXT_PUBLIC_DEMO_MODE=true.
+  // They must never ship in a production build.
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+
   const setDemoUser = (demoRole: 'admin' | 'trainer' | 'trainee') => {
+    if (!isDemoMode) return;
     if (demoRole === 'admin') {
       setEmail('admin@capacityconnect.org');
     } else if (demoRole === 'trainer') {
@@ -102,35 +107,37 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </div>
         )}
 
-        {/* Demo Fast Login Buttons */}
-        <div className="pt-2 border-t border-slate-800">
-          <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block mb-2 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5" /> Quick Demo Credentials
-          </span>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => setDemoUser('admin')}
-              className="px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all"
-            >
-              Admin Demo
-            </button>
-            <button
-              type="button"
-              onClick={() => setDemoUser('trainer')}
-              className="px-2 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-semibold hover:bg-purple-500/20 transition-all"
-            >
-              Trainer Demo
-            </button>
-            <button
-              type="button"
-              onClick={() => setDemoUser('trainee')}
-              className="px-2 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold hover:bg-blue-500/20 transition-all"
-            >
-              Trainee Demo
-            </button>
+        {/* Demo Fast Login Buttons — only visible in demo mode */}
+        {isDemoMode && (
+          <div className="pt-2 border-t border-slate-800">
+            <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block mb-2 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5" /> Quick Demo Credentials
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setDemoUser('admin')}
+                className="px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all"
+              >
+                Admin Demo
+              </button>
+              <button
+                type="button"
+                onClick={() => setDemoUser('trainer')}
+                className="px-2 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-semibold hover:bg-purple-500/20 transition-all"
+              >
+                Trainer Demo
+              </button>
+              <button
+                type="button"
+                onClick={() => setDemoUser('trainee')}
+                className="px-2 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold hover:bg-blue-500/20 transition-all"
+              >
+                Trainee Demo
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <button
           type="submit"

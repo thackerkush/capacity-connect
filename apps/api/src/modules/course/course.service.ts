@@ -531,7 +531,7 @@ export class CourseService {
     });
   }
 
-  async getEnrollment(enrollmentId: string, userId: string): Promise<any> {
+  async getEnrollment(enrollmentId: string, userId: string, isPrivileged = false): Promise<any> {
     const enrollment = await this.prisma.enrollment.findUnique({
       where: { id: enrollmentId },
       include: {
@@ -548,7 +548,12 @@ export class CourseService {
       },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
-    // Trainee can only see their own; trainers/admins resolved at controller level
+
+    // C-4: Enforce ownership — trainees can only see their own enrollment.
+    if (!isPrivileged && enrollment.trainee.userId !== userId) {
+      throw new ForbiddenException('You do not have access to this enrollment');
+    }
+
     return enrollment;
   }
 

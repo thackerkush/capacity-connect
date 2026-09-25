@@ -7,27 +7,73 @@ export class ApiError extends Error {
   }
 }
 
+// Tracks whether a refresh is already in-flight so concurrent 401s
+// don't trigger multiple refresh attempts simultaneously.
+let isRefreshing = false;
+let refreshSubscribers: Array<(ok: boolean) => void> = [];
+
+function onRefreshComplete(ok: boolean) {
+  refreshSubscribers.forEach((cb) => cb(ok));
+  refreshSubscribers = [];
+}
+
+async function attemptRefresh(): Promise<boolean> {
+  if (isRefreshing) {
+    // Wait for the already-in-flight refresh to complete
+    return new Promise((resolve) => {
+      refreshSubscribers.push(resolve);
+    });
+  }
+
+  isRefreshing = true;
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const ok = res.ok;
+    onRefreshComplete(ok);
+    return ok;
+  } catch {
+    onRefreshComplete(false);
+    return false;
+  } finally {
+    isRefreshing = false;
+  }
+}
+
 export async function apiRequest<T = any>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  _isRetry = false,
 ): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-
+  // Tokens are transported exclusively via httpOnly cookies.
+  // Never read from localStorage — that would expose tokens to XSS.
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const response = await fetch(`${API_BASE_URL}${cleanEndpoint}`, {
     ...options,
     headers,
-    credentials: 'include',
+    credentials: 'include', // Always send cookies (access_token + refresh_token)
   });
+
+  // On 401, attempt a silent token refresh then retry the original request once.
+  if (response.status === 401 && !_isRetry) {
+    const refreshed = await attemptRefresh();
+    if (refreshed) {
+      // Retry the original request with the new access_token cookie
+      return apiRequest<T>(endpoint, options, true);
+    }
+    // Refresh failed — dispatch a global event so AuthProvider can log the user out.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:session-expired'));
+    }
+    throw new ApiError(401, 'Session expired. Please sign in again.');
+  }
 
   if (!response.ok) {
     let errorMessage = 'An error occurred';

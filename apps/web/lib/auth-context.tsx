@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from './api-client';
 
@@ -28,24 +28,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const router = useRouter();
 
+  // Restore session identity from sessionStorage (NOT the token — that lives in httpOnly cookies).
+  // sessionStorage is scoped to the tab and cleared when the browser is closed,
+  // reducing the exposure window vs localStorage.
   useEffect(() => {
-    // Restore session from localStorage if present
-    const savedUser = localStorage.getItem('user_session');
-    if (savedUser) {
-      try {
+    try {
+      const savedUser = sessionStorage.getItem('user_session');
+      if (savedUser) {
         setUser(JSON.parse(savedUser));
-      } catch (e) {
-        localStorage.removeItem('user_session');
       }
+    } catch {
+      sessionStorage.removeItem('user_session');
     }
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const res = await api.post('/auth/login', { email, password });
-    
-    const roles = res.roles || ['trainee'];
+  // C-2: Listen for the global session-expired event fired by api-client
+  // when a silent token refresh fails. Force logout immediately.
+  const handleSessionExpired = useCallback(() => {
+    setUser(null);
+    sessionStorage.removeItem('user_session');
+    router.push('/?auth=true');
+  }, [router]);
 
+  useEffect(() => {
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
+  }, [handleSessionExpired]);
+
+  const login = async (email: string, password: string) => {
+    // The API sets httpOnly access_token + refresh_token cookies on the response.
+    // We never touch those cookies from JS — they are invisible to XSS.
+    const res = await api.post('/auth/login', { email, password });
+
+    const roles = res.roles || ['trainee'];
     const session: UserSession = {
       id: res.userId || 'user-' + Date.now(),
       email,
@@ -53,10 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     setUser(session);
-    localStorage.setItem('user_session', JSON.stringify(session));
-    if (res.accessToken) {
-      localStorage.setItem('access_token', res.accessToken);
-    }
+    // Store only non-sensitive session identity (no token!) in sessionStorage.
+    sessionStorage.setItem('user_session', JSON.stringify(session));
 
     // Role-based redirect
     if (roles.includes('admin')) {
@@ -75,13 +89,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setIsLoggingOut(true);
     try {
+      // Tells the server to invalidate the refresh token and clear the cookies.
       await api.post('/auth/logout');
-    } catch (err) {
-      // Ignore errors on logout
+    } catch {
+      // Even if the server call fails, clear the local session.
     } finally {
       setUser(null);
-      localStorage.removeItem('user_session');
-      localStorage.removeItem('access_token');
+      sessionStorage.removeItem('user_session');
       setIsLoggingOut(false);
       router.push('/');
     }
