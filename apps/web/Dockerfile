@@ -1,10 +1,7 @@
 # ─── Build Stage ──────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
-
-# Install build dependencies for native modules
-RUN apk add --no-cache python3 make g++
 
 
 # Copy workspace manifests
@@ -24,7 +21,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN cd apps/web && npm run build
 
 # ─── Production Stage ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS production
+FROM node:20-bookworm-slim AS production
 
 WORKDIR /app/apps/web
 
