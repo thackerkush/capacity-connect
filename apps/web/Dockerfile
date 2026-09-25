@@ -1,7 +1,9 @@
-# ─── Build Stage ──────────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
+
+# Install build dependencies for native modules
+RUN apt-get update && apt-get install -y python3 make g++
 
 
 # Copy workspace manifests
