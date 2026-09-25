@@ -37,8 +37,21 @@ export class CourseService {
   // ─── Course CRUD ──────────────────────────────────────────────────────────────
 
   /**
-   * List published courses with optional filters.
+   * H-7: Resolve a userId to the corresponding trainerProfile.id.
+   * Returns null if the user has no trainer profile.
+   */
+  async getTrainerProfileIdForUser(userId: string): Promise<string | null> {
+    const profile = await this.prisma.trainerProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    return profile?.id ?? null;
+  }
+
+  /**
+   * List courses with optional filters.
    * Admins and trainers may pass status filter to see draft/pending courses.
+   * H-7: Accepts optional trainerId to scope results to a single trainer's courses.
    */
   async listCourses(filters: {
     status?: CourseStatus;
@@ -47,15 +60,22 @@ export class CourseService {
     search?: string;
     page?: number;
     limit?: number;
+    trainerId?: string;   // H-7: scope to a specific trainer
   }): Promise<any> {
     const page = filters.page ?? 1;
     const limit = Math.min(filters.limit ?? 20, 100);
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      deletedAt: null,
-      status: filters.status ?? CourseStatus.published,
-    };
+    const where: any = { deletedAt: null };
+
+    // H-7: If scoped to a trainer, show all their statuses; otherwise default to published.
+    if (filters.trainerId) {
+      where.trainerId = filters.trainerId;
+      if (filters.status) where.status = filters.status;
+    } else {
+      where.status = filters.status ?? CourseStatus.published;
+    }
+
     if (filters.categoryId) where.categoryId = filters.categoryId;
     if (filters.difficulty) where.difficulty = filters.difficulty;
     if (filters.search) {
@@ -81,7 +101,7 @@ export class CourseService {
       this.prisma.course.count({ where }),
     ]);
 
-    return { data, meta: { page, limit, total } };
+    return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
   async getCourse(id: string): Promise<any> {
@@ -583,39 +603,46 @@ export class CourseService {
           ? ProgressStatus.in_progress
           : ProgressStatus.not_started;
 
-    const progress = await this.prisma.courseProgress.upsert({
-      where: {
-        enrollmentId_moduleId: {
+    // H-3: Wrap both writes in a single transaction so progress and enrollment
+    // status are always updated atomically. A crash between them is no longer possible.
+    return this.prisma.$transaction(async (tx) => {
+      const progress = await tx.courseProgress.upsert({
+        where: {
+          enrollmentId_moduleId: {
+            enrollmentId,
+            moduleId: dto.moduleId,
+          },
+        },
+        create: {
           enrollmentId,
           moduleId: dto.moduleId,
+          progressPct: dto.progressPct,
+          status,
+          lastAccessedAt: new Date(),
         },
-      },
-      create: {
-        enrollmentId,
-        moduleId: dto.moduleId,
-        progressPct: dto.progressPct,
-        status,
-        lastAccessedAt: new Date(),
-      },
-      update: {
-        progressPct: dto.progressPct,
-        status,
-        lastAccessedAt: new Date(),
-      },
+        update: {
+          progressPct: dto.progressPct,
+          status,
+          lastAccessedAt: new Date(),
+        },
+      });
+
+      // Check if all modules are complete → auto-complete enrollment (within same tx)
+      await this._checkAndCompleteEnrollment(enrollmentId, tx);
+
+      return progress;
     });
-
-    // Check if all modules are complete → auto-complete enrollment
-    await this._checkAndCompleteEnrollment(enrollmentId);
-
-    return progress;
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
 
   private async _checkAndCompleteEnrollment(
     enrollmentId: string,
+    tx?: Omit<typeof this.prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>,
   ): Promise<void> {
-    const enrollment = await this.prisma.enrollment.findUnique({
+    // H-3: Use the passed transaction client if available, otherwise fall back to the root client.
+    const db = (tx as any) ?? this.prisma;
+    const enrollment = await db.enrollment.findUnique({
       where: { id: enrollmentId },
       include: { course: { include: { modules: true } }, progress: true },
     });
@@ -629,12 +656,12 @@ export class CourseService {
     ).length;
 
     if (completedModules >= totalModules) {
-      await this.prisma.enrollment.update({
+      await db.enrollment.update({
         where: { id: enrollmentId },
         data: { status: EnrollmentStatus.completed, completedAt: new Date() },
       });
     } else if (enrollment.status === EnrollmentStatus.started) {
-      await this.prisma.enrollment.update({
+      await db.enrollment.update({
         where: { id: enrollmentId },
         data: { status: EnrollmentStatus.in_progress },
       });

@@ -9,8 +9,10 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { extractIp } from '../../common/utils/extract-ip';
 import { AssessmentService } from './assessment.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -41,7 +43,8 @@ export class AssessmentController {
 
   @Get('assessments/:id')
   @UseGuards(JwtAuthGuard)
-  getAssessment(@Param('id') id: string): Promise<any> {
+  // H-4: Validate the UUID format of the id param before it hits the service.
+  getAssessment(@Param('id', ParseUUIDPipe) id: string): Promise<any> {
     return this.assessmentService.getAssessment(id);
   }
 
@@ -51,7 +54,7 @@ export class AssessmentController {
   @HttpCode(HttpStatus.CREATED)
   addQuestion(
     @CurrentUser('id') userId: string,
-    @Param('id') assessmentId: string,
+    @Param('id', ParseUUIDPipe) assessmentId: string,
     @Body() dto: AddQuestionDto,
     @Req() req: Request,
   ): Promise<any> {
@@ -64,8 +67,8 @@ export class AssessmentController {
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteQuestion(
     @CurrentUser('id') userId: string,
-    @Param('id') assessmentId: string,
-    @Param('questionId') questionId: string,
+    @Param('id', ParseUUIDPipe) assessmentId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
   ): Promise<any> {
     return this.assessmentService.deleteQuestion(userId, assessmentId, questionId);
   }
@@ -74,29 +77,33 @@ export class AssessmentController {
 
   /**
    * Start attempt — returns shuffled questions WITHOUT isCorrect fields.
+   * H-5: Rate-limited to 10 starts per 5 minutes to prevent brute-force cheating.
    */
   @Post('assessments/:id/start')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('trainee')
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 10, ttl: 300000 } })
   startAttempt(
     @CurrentUser('id') userId: string,
-    @Param('id') assessmentId: string,
+    @Param('id', ParseUUIDPipe) assessmentId: string,
   ): Promise<any> {
     return this.assessmentService.startAttempt(userId, assessmentId);
   }
 
   /**
    * Submit attempt answers — graded server-side, returns score + pass/fail.
+   * H-5: Rate-limited to 10 submissions per 5 minutes to prevent automated answer farming.
    */
   @Post('assessments/:id/attempts/:attemptId/submit')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('trainee')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 300000 } })
   submitAttempt(
     @CurrentUser('id') userId: string,
-    @Param('id') assessmentId: string,
-    @Param('attemptId') attemptId: string,
+    @Param('id', ParseUUIDPipe) assessmentId: string,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
     @Body() dto: SubmitAttemptDto,
     @Req() req: Request,
   ): Promise<any> {
@@ -108,7 +115,7 @@ export class AssessmentController {
   @Roles('trainee')
   getMyAttempts(
     @CurrentUser('id') userId: string,
-    @Param('id') assessmentId: string,
+    @Param('id', ParseUUIDPipe) assessmentId: string,
   ): Promise<any> {
     return this.assessmentService.getMyAttempts(userId, assessmentId);
   }
@@ -118,8 +125,8 @@ export class AssessmentController {
   @Roles('trainee')
   getAttemptResult(
     @CurrentUser('id') userId: string,
-    @Param('id') assessmentId: string,
-    @Param('attemptId') attemptId: string,
+    @Param('id', ParseUUIDPipe) assessmentId: string,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
   ): Promise<any> {
     return this.assessmentService.getAttemptResult(userId, assessmentId, attemptId);
   }
@@ -131,7 +138,7 @@ export class AssessmentController {
   @Roles('trainee')
   getPrePostDelta(
     @CurrentUser('id') userId: string,
-    @Param('courseId') courseId: string,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
   ): Promise<any> {
     return this.assessmentService.getPrePostDelta(userId, courseId);
   }
@@ -141,7 +148,7 @@ export class AssessmentController {
   @Get('assessments/:id/admin-results')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'trainer')
-  getAdminResults(@Param('id') assessmentId: string): Promise<any> {
+  getAdminResults(@Param('id', ParseUUIDPipe) assessmentId: string): Promise<any> {
     return this.assessmentService.getAdminResults(assessmentId);
   }
 }

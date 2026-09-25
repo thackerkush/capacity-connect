@@ -7,6 +7,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { MatchingService } from './matching.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -49,7 +50,7 @@ export class MatchingController {
   @Roles('admin', 'trainer')
   @HttpCode(HttpStatus.OK)
   matchTrainersForCourse(
-    @Param('courseId') courseId: string,
+    @Param('courseId', ParseUUIDPipe) courseId: string,  // H-4
     @Query('limit') limit?: string,
   ): Promise<any> {
     return this.matchingService.matchTrainersForCourse(
@@ -65,7 +66,7 @@ export class MatchingController {
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
   computeMatchesForTrainee(
-    @Param('userId') userId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,  // H-4
     @Query('limit') limit?: string,
   ): Promise<any> {
     return this.matchingService.computeMatchesForTrainee(

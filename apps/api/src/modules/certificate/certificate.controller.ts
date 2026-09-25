@@ -9,6 +9,7 @@ import {
   HttpStatus,
   Req,
   Optional,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { CertificateService } from './certificate.service';
@@ -69,7 +70,7 @@ export class CertificateController {
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   getCertificate(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,  // H-4: UUID validation
     @CurrentUser() user: any,
   ): Promise<any> {
     return this.certificateService.getCertificate(id, user);

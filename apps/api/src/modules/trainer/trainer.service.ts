@@ -25,6 +25,11 @@ export class TrainerService {
   }
 
   async updateProfile(userId: string, data: UpdateTrainerProfileDto): Promise<any> {
+    // H-1: Verify the profile exists before attempting to update.
+    // Without this, a missing profile throws a raw Prisma P2025 error.
+    const existing = await this.prisma.trainerProfile.findUnique({ where: { userId } });
+    if (!existing) throw new NotFoundException('Trainer profile not found');
+
     return this.prisma.trainerProfile.update({
       where: { userId },
       data,

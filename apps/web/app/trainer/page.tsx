@@ -14,7 +14,9 @@ export default function TrainerDashboard() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/courses?limit=10').catch(() => ({ data: [] })),
+      // H-7: Fetch only THIS trainer's courses (all statuses) not the whole catalogue.
+      // Passing `mine=true` — the backend resolves the trainer from the JWT cookie.
+      api.get('/courses?mine=true&limit=50').catch(() => ({ data: [] })),
       api.get('/trainer/profile').catch(() => null),
     ])
       .then(([coursesRes, profileRes]) => {
@@ -102,8 +104,13 @@ export default function TrainerDashboard() {
                 </div>
 
                 <div className="text-right">
-                  <span className="text-xs text-slate-400 block">{course._count?.modules || 2} Modules</span>
-                  <span className="text-xs font-semibold text-emerald-400">{course._count?.enrollments || 12} Enrolled</span>
+                  {/* H-7: Show real counts — no fake fallback values */}
+                  <span className="text-xs text-slate-400 block">
+                    {course._count?.modules ?? 0} Module{course._count?.modules !== 1 ? 's' : ''}
+                  </span>
+                  <span className="text-xs font-semibold text-emerald-400">
+                    {course._count?.enrollments ?? 0} Enrolled
+                  </span>
                 </div>
               </div>
             ))}

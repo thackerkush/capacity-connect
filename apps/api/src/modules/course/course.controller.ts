@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { extractIp } from '../../common/utils/extract-ip';
@@ -50,22 +51,30 @@ export class CourseController {
 
   @Get('courses')
   @UseGuards(JwtAuthGuard)
-  listCourses(
+  async listCourses(
     @Query('status') status?: string,
     @Query('categoryId') categoryId?: string,
     @Query('difficulty') difficulty?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('mine') mine?: string,
     @CurrentUser() user?: any,
   ): Promise<any> {
     // C-3: Only admins and trainers may request non-published course statuses.
-    // Trainees (and unauthenticated requests) always see published courses only.
     const isPrivilegedUser = user?.roles?.some(
       (r: any) => r.name === 'admin' || r.name === 'trainer',
     );
     const resolvedStatus: any =
       status && isPrivilegedUser ? status : undefined;
+
+    // H-7: When mine=true, resolve the trainer's profile ID so the service
+    // can filter to only that trainer's courses.
+    let trainerId: string | undefined;
+    if (mine === 'true' && user?.id) {
+      const profile = await this.courseService.getTrainerProfileIdForUser(user.id);
+      trainerId = profile ?? undefined;
+    }
 
     return this.courseService.listCourses({
       status: resolvedStatus,
@@ -74,6 +83,7 @@ export class CourseController {
       search,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      trainerId,
     });
   }
 
@@ -91,7 +101,7 @@ export class CourseController {
 
   @Get('courses/:id')
   @UseGuards(JwtAuthGuard)
-  getCourse(@Param('id') id: string): Promise<any> {
+  getCourse(@Param('id', ParseUUIDPipe) id: string): Promise<any> {
     return this.courseService.getCourse(id);
   }
 
@@ -101,7 +111,7 @@ export class CourseController {
   updateCourse(
     @CurrentUser('id') userId: string,
     @CurrentUser() user: any,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCourseDto,
     @Req() req: Request,
   ): Promise<any> {
@@ -116,7 +126,7 @@ export class CourseController {
   deleteCourse(
     @CurrentUser('id') userId: string,
     @CurrentUser() user: any,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
   ): Promise<any> {
     const isAdmin = user?.roles?.some((r: any) => r.name === 'admin');
@@ -129,7 +139,7 @@ export class CourseController {
   @HttpCode(HttpStatus.OK)
   submitForApproval(
     @CurrentUser('id') userId: string,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
   ): Promise<any> {
     return this.courseService.submitForApproval(userId, id, extractIp(req));
@@ -141,7 +151,7 @@ export class CourseController {
   @HttpCode(HttpStatus.OK)
   approveCourse(
     @CurrentUser('id') userId: string,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
   ): Promise<any> {
     return this.courseService.approveCourse(userId, id, extractIp(req));
@@ -153,7 +163,7 @@ export class CourseController {
   @HttpCode(HttpStatus.OK)
   rejectCourse(
     @CurrentUser('id') userId: string,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
   ): Promise<any> {
     return this.courseService.rejectCourse(userId, id, extractIp(req));
@@ -166,7 +176,7 @@ export class CourseController {
   archiveCourse(
     @CurrentUser('id') userId: string,
     @CurrentUser() user: any,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
   ): Promise<any> {
     const isAdmin = user?.roles?.some((r: any) => r.name === 'admin');
@@ -181,7 +191,7 @@ export class CourseController {
   @HttpCode(HttpStatus.CREATED)
   addModule(
     @CurrentUser('id') userId: string,
-    @Param('courseId') courseId: string,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
     @Body() dto: CreateModuleDto,
   ): Promise<any> {
     return this.courseService.addModule(userId, courseId, dto);
@@ -192,8 +202,8 @@ export class CourseController {
   @Roles('trainer')
   updateModule(
     @CurrentUser('id') userId: string,
-    @Param('courseId') courseId: string,
-    @Param('moduleId') moduleId: string,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
+    @Param('moduleId', ParseUUIDPipe) moduleId: string,
     @Body() dto: UpdateModuleDto,
   ): Promise<any> {
     return this.courseService.updateModule(userId, courseId, moduleId, dto);
@@ -205,8 +215,8 @@ export class CourseController {
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteModule(
     @CurrentUser('id') userId: string,
-    @Param('courseId') courseId: string,
-    @Param('moduleId') moduleId: string,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
+    @Param('moduleId', ParseUUIDPipe) moduleId: string,
   ): Promise<any> {
     return this.courseService.deleteModule(userId, courseId, moduleId);
   }
@@ -235,7 +245,7 @@ export class CourseController {
   @Get('enrollments/:id')
   @UseGuards(JwtAuthGuard)
   getEnrollment(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') userId: string,
     @CurrentUser() user: any,
   ): Promise<any> {
@@ -251,7 +261,7 @@ export class CourseController {
   @HttpCode(HttpStatus.OK)
   updateProgress(
     @CurrentUser('id') userId: string,
-    @Param('id') enrollmentId: string,
+    @Param('id', ParseUUIDPipe) enrollmentId: string,
     @Body() dto: UpdateProgressDto,
   ): Promise<any> {
     return this.courseService.updateProgress(userId, enrollmentId, dto);

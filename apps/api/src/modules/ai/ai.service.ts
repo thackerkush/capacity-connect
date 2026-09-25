@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../../common/services/audit.service';
 import { ExplainSkillGapDto, RecommendTrainersDto, DraftCourseOutlineDto } from './dto/ai-request.dto';
@@ -6,7 +6,7 @@ import { CourseStatus, Difficulty } from '@repo/db';
 
 /**
  * AI Service for Capacity Connect.
- * 
+ *
  * SECURITY CONSTRAINTS ENFORCED:
  * 1. Assistive Only: This service only provides suggestions and explanations.
  * 2. No Permission-Table Writes: This service structurally lacks methods to mutate User, Role, Permission, UserRole, or RolePermission tables.
@@ -21,21 +21,22 @@ export class AiService {
 
   /**
    * Explains a skill gap in natural language. (READ-ONLY)
+   * H-2: Audit log is written inside a transaction for consistency.
    */
   async explainSkillGap(dto: ExplainSkillGapDto, userId: string, ipAddress: string | null = null): Promise<any> {
     const gap = await this.prisma.skillGapAnalysis.findUnique({
       where: { id: dto.skillGapId },
       include: {
         traineeCompetency: {
-          include: { competency: true }
-        }
-      }
+          include: { competency: true },
+        },
+      },
     });
 
     if (!gap) throw new NotFoundException('Skill gap not found');
 
     // Simulate AI generation delay
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     const compName = gap.traineeCompetency.competency.name;
     const reqLevel = gap.traineeCompetency.requiredLevel;
@@ -47,17 +48,21 @@ export class AiService {
       suggestedActions: [
         `Enroll in a course for ${compName}`,
         `Find a mentor specializing in ${compName}`,
-        `Complete a hands-on project to reach Level ${curLevel + 1}`
-      ]
+        `Complete a hands-on project to reach Level ${curLevel + 1}`,
+      ],
     };
 
-    await this.auditService.log({
-      actorUserId: userId,
-      action: 'ai.explain_skill_gap',
-      entityType: 'SkillGapAnalysis',
-      entityId: gap.id,
-      ipAddress,
-      metadata: null,
+    // H-2: Wrap audit log in a transaction to stay consistent with the rest of the codebase.
+    await this.prisma.$transaction(async (tx) => {
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'ai.explain_skill_gap',
+        entityType: 'SkillGapAnalysis',
+        entityId: gap.id,
+        ipAddress,
+        metadata: null,
+        prisma: tx,
+      });
     });
 
     return result;
@@ -65,6 +70,7 @@ export class AiService {
 
   /**
    * Recommends trainers using the Matching Engine results + AI narrative. (READ-ONLY)
+   * H-2: Audit log is written inside a transaction for consistency.
    */
   async recommendTrainers(dto: RecommendTrainersDto, userId: string, ipAddress: string | null = null): Promise<any> {
     // We reuse the existing matching scores from Phase 8.
@@ -74,70 +80,75 @@ export class AiService {
       take: 3,
       include: {
         trainer: {
-          include: { user: { select: { email: true } }, department: true }
-        }
-      }
+          include: { user: { select: { email: true } }, department: true },
+        },
+      },
     });
 
     // Simulate AI generation delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const recommendations = matches.map(match => {
+    const recommendations = matches.map((match) => {
       const email = match.trainer.user.email;
       const dept = match.trainer.department?.name || 'External';
       const scorePct = Math.round(Number(match.matchScore) * 100);
-      
+
       return {
         trainerId: match.trainer.id,
         email,
         matchScorePct: scorePct,
-        aiNarrative: `Based on a ${scorePct}% match score, ${email} from ${dept} is highly recommended. Their expertise aligns perfectly with your current skill gaps, and their availability matches your schedule.`
+        aiNarrative: `Based on a ${scorePct}% match score, ${email} from ${dept} is highly recommended. Their expertise aligns perfectly with your current skill gaps, and their availability matches your schedule.`,
       };
     });
 
     const result = {
       traineeId: dto.traineeId,
       aiSummary: `We have identified ${recommendations.length} ideal mentors for your learning path based on your latest skill gap analysis.`,
-      recommendations
+      recommendations,
     };
 
-    await this.auditService.log({
-      actorUserId: userId,
-      action: 'ai.recommend_trainers',
-      entityType: 'User',
-      entityId: dto.traineeId,
-      ipAddress,
-      metadata: null,
+    // H-2: Wrap audit log in a transaction for consistency.
+    await this.prisma.$transaction(async (tx) => {
+      await this.auditService.log({
+        actorUserId: userId,
+        action: 'ai.recommend_trainers',
+        entityType: 'User',
+        entityId: dto.traineeId,
+        ipAddress,
+        metadata: null,
+        prisma: tx,
+      });
     });
 
     return result;
   }
 
   /**
-   * Generates a draft course outline. 
+   * Generates a draft course outline.
    * ENFORCES DRAFT STATUS: If saved to DB, it forces status = 'draft'.
+   * H-6: No longer auto-creates a category if none exist — throws instead.
    */
   async draftCourseOutline(dto: DraftCourseOutlineDto, trainerUserId: string, ipAddress: string | null = null): Promise<any> {
     const trainerProfile = await this.prisma.trainerProfile.findUnique({
-      where: { userId: trainerUserId }
+      where: { userId: trainerUserId },
     });
     if (!trainerProfile) throw new ForbiddenException('Only trainers can draft courses');
 
+    // H-6: Fail explicitly if no categories exist rather than silently polluting data.
+    const categoryId = await this._requireDefaultCategoryId();
+
     // Simulate AI generation delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const aiTitle = `Mastering ${dto.topic}`;
     const aiDescription = `An AI-generated comprehensive guide to ${dto.topic}${dto.targetAudience ? ` tailored for ${dto.targetAudience}` : ''}.`;
-    
-    // We construct a mock module list
+
     const aiModules = [
       { title: 'Introduction & Foundations', sequenceOrder: 1 },
       { title: 'Core Concepts', sequenceOrder: 2 },
       { title: 'Advanced Applications', sequenceOrder: 3 },
     ];
 
-    // We can either return this for the client to preview, or save it explicitly as DRAFT.
-    // Let's save it as a draft course to demonstrate the constraint enforcement.
     return this.prisma.$transaction(async (tx) => {
       const draftCourse = await tx.course.create({
         data: {
@@ -145,14 +156,14 @@ export class AiService {
           slug: `ai-draft-${Date.now()}`,
           description: aiDescription,
           trainerId: trainerProfile.id,
-          categoryId: (await this._getDefaultCategoryId(tx)),
+          categoryId,
           difficulty: (dto.difficulty as Difficulty) || Difficulty.beginner,
           status: CourseStatus.draft,
           modules: {
-            create: aiModules
-          }
+            create: aiModules,
+          },
         },
-        include: { modules: true }
+        include: { modules: true },
       });
 
       await this.auditService.log({
@@ -168,16 +179,21 @@ export class AiService {
       return {
         message: 'AI drafted a course outline successfully.',
         statusEnforced: CourseStatus.draft,
-        course: draftCourse
+        course: draftCourse,
       };
     });
   }
 
-  private async _getDefaultCategoryId(prismaClient?: any): Promise<string> {
-    const client = prismaClient || this.prisma;
-    let cat = await client.courseCategory.findFirst();
+  /**
+   * H-6: Requires at least one category to exist.
+   * Throws BadRequestException instead of silently creating one.
+   */
+  private async _requireDefaultCategoryId(): Promise<string> {
+    const cat = await this.prisma.courseCategory.findFirst();
     if (!cat) {
-      cat = await client.courseCategory.create({ data: { name: 'Uncategorized (AI Draft)' } });
+      throw new BadRequestException(
+        'No course categories exist. An admin must create at least one category before AI can draft courses.',
+      );
     }
     return cat.id;
   }
