@@ -69,6 +69,39 @@ npm run dev
 
 ---
 
+## 🐳 Full Stack Docker Deployment
+
+If you prefer to run the entire stack (Database, Redis, MinIO, API, and Web App) within Docker containers without installing Node.js locally:
+
+### 1. Environment Variables
+Copy `.env.example` to `.env` in the root directory:
+```bash
+cp .env.example .env
+```
+
+### 2. Build and Start All Services
+```bash
+docker compose up --build -d
+```
+*Note: This will spin up `cc_postgres`, `cc_redis`, `cc_minio`, `cc_api`, and `cc_web`.*
+
+### 3. Database Setup & Seeding (First Time Only)
+Run the migration and seed scripts locally using npm:
+```bash
+cd packages/db
+npx prisma generate
+npx prisma migrate dev
+npx prisma db seed
+cd ../..
+```
+
+### 4. Access the Applications
+- **Web App**: http://localhost:3000
+- **API**: http://localhost:4000/api/v1
+- **MinIO Console**: http://localhost:9001 (Credentials: `minioadmin` / `minioadmin`)
+
+---
+
 ## 🧪 Testing
 
 The codebase maintains rigorous unit and end-to-end (E2E) testing suites.
