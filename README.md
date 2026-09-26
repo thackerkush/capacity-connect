@@ -145,6 +145,4 @@ The database seeder automatically provisions the following accounts:
 
 ---
 
-## 📜 License
 
-Internal Proprietary / MIT License
