@@ -95,17 +95,19 @@ export class AiService {
    * Uses `responseMimeType: 'application/json'` to guarantee structured output.
    * Enforces a minimum delay before calling to respect free-tier rate limits.
    */
-  private async callGemini<T>(prompt: string, retries = 2): Promise<T> {
+  private async callGemini<T>(prompt: string, retries = 2, modelOverride?: string): Promise<T> {
     if (!this.geminiApiKey) {
       throw new InternalServerErrorException(
         'GEMINI_API_KEY is not configured. Set it in your .env file.',
       );
     }
 
+    const currentModel = modelOverride || this.geminiModel;
+
     // Rate-limit safety delay — stays within 15 req/min on the free tier
     await this._delay(this.geminiDelayMs);
 
-    const url = `${this.geminiBaseUrl}/${this.geminiModel}:generateContent`;
+    const url = `${this.geminiBaseUrl}/${currentModel}:generateContent`;
 
     const requestBody: GeminiRequest = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -116,7 +118,7 @@ export class AiService {
       },
     };
 
-    this.logger.debug(`Calling Gemini [${this.geminiModel}] — prompt length: ${prompt.length}`);
+    this.logger.debug(`Calling Gemini [${currentModel}] — prompt length: ${prompt.length}`);
 
     let response: Response;
     try {
@@ -129,17 +131,27 @@ export class AiService {
         body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(12000),
       });
-    } catch (err) {
-      this.logger.error('Network error calling Gemini API', err);
+    } catch (err: any) {
+      this.logger.warn(`Network error with Gemini [${currentModel}]: ${err?.message}`);
+      if (currentModel !== 'gemini-flash-latest') {
+        this.logger.log(`Attempting fallback model 'gemini-flash-latest'...`);
+        return this.callGemini<T>(prompt, 1, 'gemini-flash-latest');
+      }
       throw new InternalServerErrorException('Failed to reach the Gemini API. Check network connectivity.');
     }
 
-    // 503 = Gemini overloaded — retry with exponential backoff
+    // 503 (overloaded) or 404 (model deprecated/unavailable) → try fallback model or retry
+    if ((response.status === 503 || response.status === 404) && currentModel !== 'gemini-flash-latest') {
+      this.logger.warn(`Gemini [${currentModel}] returned ${response.status}. Switching to fallback model 'gemini-flash-latest'...`);
+      return this.callGemini<T>(prompt, 1, 'gemini-flash-latest');
+    }
+
+    // 503 retry with exponential backoff on current model
     if (response.status === 503 && retries > 0) {
-      const backoffMs = (3 - retries) * 3000 + 2000; // 2s, 5s
+      const backoffMs = (3 - retries) * 2000 + 1000;
       this.logger.warn(`Gemini 503 received. Retrying in ${backoffMs}ms (${retries} retries left)...`);
       await this._delay(backoffMs);
-      return this.callGemini<T>(prompt, retries - 1);
+      return this.callGemini<T>(prompt, retries - 1, currentModel);
     }
 
     if (!response.ok) {
