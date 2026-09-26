@@ -62,7 +62,10 @@ export async function apiRequest<T = any>(
   });
 
   // On 401, attempt a silent token refresh then retry the original request once.
-  if (response.status === 401 && !_isRetry) {
+  // We skip this for auth endpoints to allow them to handle their own 401s (e.g. invalid credentials).
+  const isAuthEndpoint = cleanEndpoint.startsWith('/auth/login') || cleanEndpoint.startsWith('/auth/register') || cleanEndpoint.startsWith('/auth/refresh');
+  
+  if (response.status === 401 && !_isRetry && !isAuthEndpoint) {
     const refreshed = await attemptRefresh();
     if (refreshed) {
       // Retry the original request with the new access_token cookie

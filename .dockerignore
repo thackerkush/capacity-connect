@@ -1,0 +1,45 @@
+# Dependencies - never send to Docker daemon
+node_modules
+**/node_modules
+
+# Build outputs
+**/dist
+**/.next
+**/build
+**/.turbo
+
+# Git
+.git
+.gitignore
+
+# Local env files
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Logs
+**/*.log
+**/npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+
+# Test / coverage
+**/coverage
+**/__tests__
+**/*.test.ts
+**/*.spec.ts
+
+# Docs / misc
+docs
+*.md
+*.pptx
+*.py
+generate_ppt.py
+memory

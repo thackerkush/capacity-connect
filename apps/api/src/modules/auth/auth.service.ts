@@ -52,6 +52,16 @@ export class AuthService {
         },
       });
 
+      if (role.name === 'trainee') {
+        await tx.traineeProfile.create({
+          data: { userId: user.id },
+        });
+      } else if (role.name === 'trainer') {
+        await tx.trainerProfile.create({
+          data: { userId: user.id },
+        });
+      }
+
       await this.auditService.log({
         actorUserId: user.id,
         action: 'auth.register',

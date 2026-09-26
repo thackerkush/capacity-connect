@@ -641,9 +641,10 @@ export class CourseService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async _checkAndCompleteEnrollment(
     enrollmentId: string,
-    tx?: Omit<typeof this.prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>,
+    tx?: any,
   ): Promise<void> {
     // H-3: Use the passed transaction client if available, otherwise fall back to the root client.
     const db = (tx as any) ?? this.prisma;

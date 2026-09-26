@@ -67,7 +67,7 @@ export class TraineeService {
         entityType: 'Interest',
         entityId: interest.id,
         ipAddress: null,
-        metadata: { area: data.area },
+        metadata: { interestName: data.interestName },
         prisma: tx,
       });
       return interest;
@@ -94,7 +94,7 @@ export class TraineeService {
         entityType: 'WorkExperience',
         entityId: experience.id,
         ipAddress: null,
-        metadata: { company: data.company, role: data.role },
+        metadata: { organization: data.organization, role: data.role },
         prisma: tx,
       });
       return experience;
@@ -120,7 +120,7 @@ export class TraineeService {
         entityType: 'Qualification',
         entityId: qualification.id,
         ipAddress: null,
-        metadata: { title: data.title },
+        metadata: { degree: data.degree },
         prisma: tx,
       });
       return qualification;
