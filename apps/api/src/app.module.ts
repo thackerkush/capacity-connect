@@ -18,12 +18,13 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AiModule } from './modules/ai/ai.module';
 import { HealthModule } from './health/health.module'; // L-6
 import authConfig from './config/auth.config';
+import aiConfig from './config/ai.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [authConfig],
+      load: [authConfig, aiConfig],
     }),
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60 * 1000, limit: 100 },
